@@ -16,7 +16,7 @@ from aiohttp.hdrs import CONTENT_TYPE
 import async_timeout
 
 from homeassistant.const import CONTENT_TYPE_TEXT_PLAIN
-from homeassistant.components.http import HomeAssistantView
+from homeassistant.components.http import HomeAssistantView, KEY_AUTHENTICATED
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.components.frontend import register_built_in_panel
 
@@ -25,17 +25,14 @@ _LOGGER = logging.getLogger(__name__)
 DOMAIN = 'hassio'
 DEPENDENCIES = ['http']
 
-TIMEOUT = 10
+NO_TIMEOUT = {
+    re.compile(r'^homeassistant/update$'), re.compile(r'^host/update$'),
+    re.compile(r'^supervisor/update$'), re.compile(r'^addons/[^/]*/update$'),
+    re.compile(r'^addons/[^/]*/install$')
+}
 
-ADDON_REST_COMMANDS = {
-    'install': ['POST'],
-    'uninstall': ['POST'],
-    'start': ['POST'],
-    'stop': ['POST'],
-    'update': ['POST'],
-    'options': ['POST'],
-    'info': ['GET'],
-    'logs': ['GET'],
+NO_AUTH = {
+    re.compile(r'^panel$'), re.compile(r'^addons/[^/]*/logo$')
 }
 
 
@@ -81,7 +78,7 @@ class HassIO(object):
         This method is a coroutine.
         """
         try:
-            with async_timeout.timeout(TIMEOUT, loop=self.loop):
+            with async_timeout.timeout(10, loop=self.loop):
                 request = yield from self.websession.get(
                     "http://{}{}".format(self._ip, "/supervisor/ping")
                 )
@@ -107,10 +104,12 @@ class HassIO(object):
 
         This method is a coroutine.
         """
+        read_timeout = _get_timeout(path)
+
         try:
             data = None
             headers = None
-            with async_timeout.timeout(TIMEOUT, loop=self.loop):
+            with async_timeout.timeout(10, loop=self.loop):
                 data = yield from request.read()
                 if data:
                     headers = {CONTENT_TYPE: request.content_type}
@@ -120,7 +119,7 @@ class HassIO(object):
             method = getattr(self.websession, request.method.lower())
             client = yield from method(
                 "http://{}/{}".format(self._ip, path), data=data,
-                headers=headers
+                headers=headers, timeout=read_timeout
             )
 
             return client
@@ -139,7 +138,7 @@ class HassIOView(HomeAssistantView):
 
     name = "api:hassio"
     url = "/api/hassio/{path:.+}"
-    requires_auth = True
+    requires_auth = False
 
     def __init__(self, hassio):
         """Initialize a hassio base view."""
@@ -148,6 +147,9 @@ class HassIOView(HomeAssistantView):
     @asyncio.coroutine
     def _handle(self, request, path):
         """Route data to hassio."""
+        if _need_auth(path) and not request[KEY_AUTHENTICATED]:
+            return web.Response(status=401)
+
         client = yield from self.hassio.command_proxy(path, request)
 
         data = yield from client.read()
@@ -178,3 +180,19 @@ def _create_response_log(client, data):
         status=client.status,
         content_type=CONTENT_TYPE_TEXT_PLAIN,
     )
+
+
+def _get_timeout(path):
+    """Return timeout for a url path."""
+    for re_path in NO_TIMEOUT:
+        if re_path.match(path):
+            return 0
+    return 300
+
+
+def _need_auth(path):
+    """Return if a path need a auth."""
+    for re_path in NO_AUTH:
+        if re_path.match(path):
+            return False
+    return True

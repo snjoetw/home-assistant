@@ -52,7 +52,7 @@ class OhmconnectSensor(Entity):
 
     @property
     def name(self):
-        """The name of the sensor."""
+        """Return the name of the sensor."""
         return self._name
 
     @property
@@ -60,8 +60,7 @@ class OhmconnectSensor(Entity):
         """Return the state of the sensor."""
         if self._data.get("active") == "True":
             return "Active"
-        else:
-            return "Inactive"
+        return "Inactive"
 
     @property
     def device_state_attributes(self):

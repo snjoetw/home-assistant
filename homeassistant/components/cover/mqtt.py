@@ -14,7 +14,9 @@ import homeassistant.components.mqtt as mqtt
 from homeassistant.components.cover import (
     CoverDevice, ATTR_TILT_POSITION, SUPPORT_OPEN_TILT,
     SUPPORT_CLOSE_TILT, SUPPORT_STOP_TILT, SUPPORT_SET_TILT_POSITION,
-    SUPPORT_OPEN, SUPPORT_CLOSE, SUPPORT_STOP, SUPPORT_SET_POSITION)
+    SUPPORT_OPEN, SUPPORT_CLOSE, SUPPORT_STOP, SUPPORT_SET_POSITION,
+    ATTR_POSITION)
+from homeassistant.exceptions import TemplateError
 from homeassistant.const import (
     CONF_NAME, CONF_VALUE_TEMPLATE, CONF_OPTIMISTIC, STATE_OPEN,
     STATE_CLOSED, STATE_UNKNOWN)
@@ -29,6 +31,8 @@ DEPENDENCIES = ['mqtt']
 
 CONF_TILT_COMMAND_TOPIC = 'tilt_command_topic'
 CONF_TILT_STATUS_TOPIC = 'tilt_status_topic'
+CONF_POSITION_TOPIC = 'set_position_topic'
+CONF_SET_POSITION_TEMPLATE = 'set_position_template'
 
 CONF_PAYLOAD_OPEN = 'payload_open'
 CONF_PAYLOAD_CLOSE = 'payload_close'
@@ -40,6 +44,7 @@ CONF_TILT_OPEN_POSITION = 'tilt_opened_value'
 CONF_TILT_MIN = 'tilt_min'
 CONF_TILT_MAX = 'tilt_max'
 CONF_TILT_STATE_OPTIMISTIC = 'tilt_optimistic'
+CONF_TILT_INVERT_STATE = 'tilt_invert_state'
 
 DEFAULT_NAME = 'MQTT Cover'
 DEFAULT_PAYLOAD_OPEN = 'OPEN'
@@ -52,11 +57,19 @@ DEFAULT_TILT_OPEN_POSITION = 100
 DEFAULT_TILT_MIN = 0
 DEFAULT_TILT_MAX = 100
 DEFAULT_TILT_OPTIMISTIC = False
+DEFAULT_TILT_INVERT_STATE = False
 
+OPEN_CLOSE_FEATURES = (SUPPORT_OPEN | SUPPORT_CLOSE | SUPPORT_STOP)
 TILT_FEATURES = (SUPPORT_OPEN_TILT | SUPPORT_CLOSE_TILT | SUPPORT_STOP_TILT |
                  SUPPORT_SET_TILT_POSITION)
 
-PLATFORM_SCHEMA = mqtt.MQTT_RW_PLATFORM_SCHEMA.extend({
+PLATFORM_SCHEMA = mqtt.MQTT_BASE_PLATFORM_SCHEMA.extend({
+    vol.Optional(CONF_COMMAND_TOPIC, default=None): valid_publish_topic,
+    vol.Optional(CONF_POSITION_TOPIC, default=None): valid_publish_topic,
+    vol.Optional(CONF_SET_POSITION_TEMPLATE, default=None): cv.template,
+    vol.Optional(CONF_RETAIN, default=DEFAULT_RETAIN): cv.boolean,
+    vol.Optional(CONF_STATE_TOPIC): valid_subscribe_topic,
+    vol.Optional(CONF_VALUE_TEMPLATE): cv.template,
     vol.Optional(CONF_NAME, default=DEFAULT_NAME): cv.string,
     vol.Optional(CONF_PAYLOAD_OPEN, default=DEFAULT_PAYLOAD_OPEN): cv.string,
     vol.Optional(CONF_PAYLOAD_CLOSE, default=DEFAULT_PAYLOAD_CLOSE): cv.string,
@@ -70,12 +83,12 @@ PLATFORM_SCHEMA = mqtt.MQTT_RW_PLATFORM_SCHEMA.extend({
                  default=DEFAULT_TILT_CLOSED_POSITION): int,
     vol.Optional(CONF_TILT_OPEN_POSITION,
                  default=DEFAULT_TILT_OPEN_POSITION): int,
-    vol.Optional(CONF_TILT_MIN,
-                 default=DEFAULT_TILT_MIN): int,
-    vol.Optional(CONF_TILT_MAX,
-                 default=DEFAULT_TILT_MAX): int,
+    vol.Optional(CONF_TILT_MIN, default=DEFAULT_TILT_MIN): int,
+    vol.Optional(CONF_TILT_MAX, default=DEFAULT_TILT_MAX): int,
     vol.Optional(CONF_TILT_STATE_OPTIMISTIC,
                  default=DEFAULT_TILT_OPTIMISTIC): cv.boolean,
+    vol.Optional(CONF_TILT_INVERT_STATE,
+                 default=DEFAULT_TILT_INVERT_STATE): cv.boolean,
 })
 
 
@@ -85,6 +98,9 @@ def async_setup_platform(hass, config, async_add_devices, discovery_info=None):
     value_template = config.get(CONF_VALUE_TEMPLATE)
     if value_template is not None:
         value_template.hass = hass
+    set_position_template = config.get(CONF_SET_POSITION_TEMPLATE)
+    if set_position_template is not None:
+        set_position_template.hass = hass
 
     async_add_devices([MqttCover(
         config.get(CONF_NAME),
@@ -106,6 +122,9 @@ def async_setup_platform(hass, config, async_add_devices, discovery_info=None):
         config.get(CONF_TILT_MIN),
         config.get(CONF_TILT_MAX),
         config.get(CONF_TILT_STATE_OPTIMISTIC),
+        config.get(CONF_TILT_INVERT_STATE),
+        config.get(CONF_POSITION_TOPIC),
+        set_position_template,
     )])
 
 
@@ -116,7 +135,8 @@ class MqttCover(CoverDevice):
                  tilt_status_topic, qos, retain, state_open, state_closed,
                  payload_open, payload_close, payload_stop,
                  optimistic, value_template, tilt_open_position,
-                 tilt_closed_position, tilt_min, tilt_max, tilt_optimistic):
+                 tilt_closed_position, tilt_min, tilt_max, tilt_optimistic,
+                 tilt_invert, position_topic, set_position_template):
         """Initialize the cover."""
         self._position = None
         self._state = None
@@ -140,6 +160,9 @@ class MqttCover(CoverDevice):
         self._tilt_min = tilt_min
         self._tilt_max = tilt_max
         self._tilt_optimistic = tilt_optimistic
+        self._tilt_invert = tilt_invert
+        self._position_topic = position_topic
+        self._set_position_template = set_position_template
 
     @asyncio.coroutine
     def async_added_to_hass(self):
@@ -149,11 +172,11 @@ class MqttCover(CoverDevice):
         """
         @callback
         def tilt_updated(topic, payload, qos):
-            """The tilt was updated."""
+            """Handle tilt updates."""
             if (payload.isnumeric() and
                     self._tilt_min <= int(payload) <= self._tilt_max):
-                tilt_range = self._tilt_max - self._tilt_min
-                level = round(float(payload) / tilt_range * 100.0)
+
+                level = self.find_percentage_in_range(float(payload))
                 self._tilt_value = level
                 self.hass.async_add_job(self.async_update_ha_state())
 
@@ -228,9 +251,11 @@ class MqttCover(CoverDevice):
     @property
     def supported_features(self):
         """Flag supported features."""
-        supported_features = SUPPORT_OPEN | SUPPORT_CLOSE | SUPPORT_STOP
+        supported_features = 0
+        if self._command_topic is not None:
+            supported_features = OPEN_CLOSE_FEATURES
 
-        if self.current_cover_position is not None:
+        if self._position_topic is not None:
             supported_features |= SUPPORT_SET_POSITION
 
         if self._tilt_command_topic is not None:
@@ -280,7 +305,8 @@ class MqttCover(CoverDevice):
     def async_open_cover_tilt(self, **kwargs):
         """Tilt the cover open."""
         mqtt.async_publish(self.hass, self._tilt_command_topic,
-                           self._tilt_open_position, self._qos, self._retain)
+                           self._tilt_open_position, self._qos,
+                           self._retain)
         if self._tilt_optimistic:
             self._tilt_value = self._tilt_open_position
             self.hass.async_add_job(self.async_update_ha_state())
@@ -289,7 +315,8 @@ class MqttCover(CoverDevice):
     def async_close_cover_tilt(self, **kwargs):
         """Tilt the cover closed."""
         mqtt.async_publish(self.hass, self._tilt_command_topic,
-                           self._tilt_closed_position, self._qos, self._retain)
+                           self._tilt_closed_position, self._qos,
+                           self._retain)
         if self._tilt_optimistic:
             self._tilt_value = self._tilt_closed_position
             self.hass.async_add_job(self.async_update_ha_state())
@@ -303,9 +330,54 @@ class MqttCover(CoverDevice):
         position = float(kwargs[ATTR_TILT_POSITION])
 
         # The position needs to be between min and max
-        tilt_range = self._tilt_max - self._tilt_min
-        percentage = position / 100.0
-        level = round(tilt_range * percentage)
+        level = self.find_in_range_from_percent(position)
 
         mqtt.async_publish(self.hass, self._tilt_command_topic,
                            level, self._qos, self._retain)
+
+    @asyncio.coroutine
+    def async_set_cover_position(self, **kwargs):
+        """Move the cover to a specific position."""
+        if ATTR_POSITION in kwargs:
+            position = kwargs[ATTR_POSITION]
+            if self._set_position_template is not None:
+                try:
+                    position = self._set_position_template.async_render(
+                        **kwargs)
+                except TemplateError as ex:
+                    _LOGGER.error(ex)
+                    self._state = None
+
+            mqtt.async_publish(self.hass, self._position_topic,
+                               position, self._qos, self._retain)
+
+    def find_percentage_in_range(self, position):
+        """Find the 0-100% value within the specified range."""
+        # the range of motion as defined by the min max values
+        tilt_range = self._tilt_max - self._tilt_min
+        # offset to be zero based
+        offset_position = position - self._tilt_min
+        # the percentage value within the range
+        position_percentage = float(offset_position) / tilt_range * 100.0
+        if self._tilt_invert:
+            return 100 - position_percentage
+        return position_percentage
+
+    def find_in_range_from_percent(self, percentage):
+        """
+        Find the adjusted value for 0-100% within the specified range.
+
+        if the range is 80-180 and the percentage is 90
+        this method would determine the value to send on the topic
+        by offsetting the max and min, getting the percentage value and
+        returning the offset
+        """
+        offset = self._tilt_min
+        tilt_range = self._tilt_max - self._tilt_min
+
+        position = round(tilt_range * (percentage / 100.0))
+        position += offset
+
+        if self._tilt_invert:
+            position = self._tilt_max - position + offset
+        return position

@@ -2,9 +2,11 @@
 from datetime import datetime
 import json
 import logging
+import random
 import re
 
 import jinja2
+from jinja2 import contextfilter
 from jinja2.sandbox import ImmutableSandboxedEnvironment
 
 from homeassistant.const import (
@@ -45,7 +47,7 @@ def extract_entities(template):
         return MATCH_ALL
 
     extraction = _RE_GET_ENTITIES.findall(template)
-    if len(extraction) > 0:
+    if extraction:
         return list(set(extraction))
     return MATCH_ALL
 
@@ -54,7 +56,7 @@ class Template(object):
     """Class to hold a template and manage caching and rendering."""
 
     def __init__(self, template, hass=None):
-        """Instantiate a Template."""
+        """Instantiate a template."""
         if not isinstance(template, str):
             raise TypeError('Expected template to be a string')
 
@@ -336,7 +338,7 @@ class LocationMethods(object):
 
 
 def forgiving_round(value, precision=0):
-    """Rounding filter that accepts strings."""
+    """Round accepted strings."""
     try:
         value = round(float(value), precision)
         return int(value) if precision == 0 else value
@@ -418,6 +420,16 @@ def forgiving_float(value):
         return value
 
 
+@contextfilter
+def random_every_time(context, values):
+    """Choose a random value.
+
+    Unlike Jinja's random filter,
+    this is context-dependent to avoid caching the chosen value.
+    """
+    return random.choice(values)
+
+
 class TemplateEnvironment(ImmutableSandboxedEnvironment):
     """The Home Assistant template environment."""
 
@@ -435,6 +447,7 @@ ENV.filters['timestamp_utc'] = timestamp_utc
 ENV.filters['is_defined'] = fail_when_undefined
 ENV.filters['max'] = max
 ENV.filters['min'] = min
+ENV.filters['random'] = random_every_time
 ENV.globals['float'] = forgiving_float
 ENV.globals['now'] = dt_util.now
 ENV.globals['utcnow'] = dt_util.utcnow

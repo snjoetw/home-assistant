@@ -4,6 +4,7 @@ Support for Wink binary sensors.
 For more details about this platform, please refer to the documentation at
 at https://home-assistant.io/components/binary_sensor.wink/
 """
+import asyncio
 import logging
 
 from homeassistant.components.binary_sensor import BinarySensorDevice
@@ -101,6 +102,11 @@ class WinkBinarySensorDevice(WinkDevice, BinarySensorDevice, Entity):
         else:
             self.capability = None
 
+    @asyncio.coroutine
+    def async_added_to_hass(self):
+        """Callback when entity is added to hass."""
+        self.hass.data[DOMAIN]['entities']['binary_sensor'].append(self)
+
     @property
     def is_on(self):
         """Return true if the binary sensor is on."""
@@ -115,10 +121,6 @@ class WinkBinarySensorDevice(WinkDevice, BinarySensorDevice, Entity):
 class WinkSmokeDetector(WinkBinarySensorDevice):
     """Representation of a Wink Smoke detector."""
 
-    def __init__(self, wink, hass):
-        """Initialize the Wink binary sensor."""
-        super().__init__(wink, hass)
-
     @property
     def device_state_attributes(self):
         """Return the state attributes."""
@@ -129,10 +131,6 @@ class WinkSmokeDetector(WinkBinarySensorDevice):
 
 class WinkHub(WinkBinarySensorDevice):
     """Representation of a Wink Hub."""
-
-    def __init__(self, wink, hass):
-        """Initialize the Wink binary sensor."""
-        super().__init__(wink, hass)
 
     @property
     def device_state_attributes(self):
@@ -145,10 +143,6 @@ class WinkHub(WinkBinarySensorDevice):
 
 class WinkRemote(WinkBinarySensorDevice):
     """Representation of a Wink Lutron Connected bulb remote."""
-
-    def __init__(self, wink, hass):
-        """Initialize the Wink binary sensor."""
-        super().__init__(wink, hass)
 
     @property
     def device_state_attributes(self):
@@ -169,10 +163,6 @@ class WinkRemote(WinkBinarySensorDevice):
 class WinkButton(WinkBinarySensorDevice):
     """Representation of a Wink Relay button."""
 
-    def __init__(self, wink, hass):
-        """Initialize the Wink binary sensor."""
-        super().__init__(wink, hass)
-
     @property
     def device_state_attributes(self):
         """Return the state attributes."""
@@ -184,10 +174,6 @@ class WinkButton(WinkBinarySensorDevice):
 
 class WinkGang(WinkBinarySensorDevice):
     """Representation of a Wink Relay gang."""
-
-    def __init__(self, wink, hass):
-        """Initialize the Wink binary sensor."""
-        super().__init__(wink, hass)
 
     @property
     def is_on(self):

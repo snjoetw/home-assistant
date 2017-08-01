@@ -139,17 +139,17 @@ class BOMCurrentSensor(Entity):
         """Return the name of the sensor."""
         if self.stationname is None:
             return 'BOM {}'.format(SENSOR_TYPES[self._condition][0])
-        else:
-            return 'BOM {} {}'.format(
-                self.stationname, SENSOR_TYPES[self._condition][0])
+
+        return 'BOM {} {}'.format(
+            self.stationname, SENSOR_TYPES[self._condition][0])
 
     @property
     def state(self):
         """Return the state of the sensor."""
         if self.rest.data and self._condition in self.rest.data:
             return self.rest.data[self._condition]
-        else:
-            return STATE_UNKNOWN
+
+        return STATE_UNKNOWN
 
     @property
     def device_state_attributes(self):
@@ -272,7 +272,7 @@ def closest_station(lat, lon, cache_dir):
     stations = bom_stations(cache_dir)
 
     def comparable_dist(wmo_id):
-        """A fast key function for psudeo-distance from lat/lon."""
+        """Create a psudeo-distance from lat/lon."""
         station_lat, station_lon = stations[wmo_id]
         return (lat - station_lat) ** 2 + (lon - station_lon) ** 2
 

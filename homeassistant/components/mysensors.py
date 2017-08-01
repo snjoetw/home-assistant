@@ -21,9 +21,7 @@ from homeassistant.const import (
 from homeassistant.helpers import discovery
 from homeassistant.loader import get_component
 
-REQUIREMENTS = [
-    'https://github.com/theolind/pymysensors/archive/'
-    'c6990eaaa741444a638608e6e00488195e2ca74c.zip#pymysensors==0.9.1']
+REQUIREMENTS = ['pymysensors==0.10.0']
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -168,11 +166,11 @@ def setup(hass, config):
             retain = config[DOMAIN].get(CONF_RETAIN)
 
             def pub_callback(topic, payload, qos, retain):
-                """Call mqtt publish function."""
+                """Call MQTT publish function."""
                 mqtt.publish(hass, topic, payload, qos, retain)
 
             def sub_callback(topic, callback, qos):
-                """Call mqtt subscribe function."""
+                """Call MQTT subscribe function."""
                 mqtt.subscribe(hass, topic, callback, qos)
             gateway = mysensors.MQTTGateway(
                 pub_callback, sub_callback,
@@ -322,6 +320,7 @@ class GatewayWrapper(object):
         optimistic (bool): Send values to actuators without feedback state.
         device (str): Device configured as gateway.
         __initialised (bool): True if GatewayWrapper is initialised.
+
         """
         self._wrapped_gateway = gateway
         self.platform_callbacks = []
@@ -350,7 +349,7 @@ class GatewayWrapper(object):
     def callback_factory(self):
         """Return a new callback function."""
         def node_update(msg):
-            """Callback for node updates from the MySensors gateway."""
+            """Handle node updates from the MySensors gateway."""
             _LOGGER.debug(
                 "Update: node %s, child %s sub_type %s",
                 msg.node_id, msg.child_id, msg.sub_type)
@@ -381,7 +380,7 @@ class MySensorsDeviceEntity(object):
 
     @property
     def name(self):
-        """The name of this entity."""
+        """Return the name of this entity."""
         return self._name
 
     @property
@@ -403,14 +402,14 @@ class MySensorsDeviceEntity(object):
             try:
                 attr[set_req(value_type).name] = value
             except ValueError:
-                _LOGGER.error('Value_type %s is not valid for mysensors '
-                              'version %s', value_type,
+                _LOGGER.error("Value_type %s is not valid for mysensors "
+                              "version %s", value_type,
                               self.gateway.protocol_version)
         return attr
 
     @property
     def available(self):
-        """Return True if entity is available."""
+        """Return true if entity is available."""
         return self.value_type in self._values
 
     def update(self):

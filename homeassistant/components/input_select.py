@@ -10,15 +10,16 @@ import logging
 import voluptuous as vol
 
 from homeassistant.const import ATTR_ENTITY_ID, CONF_ICON, CONF_NAME
+from homeassistant.loader import bind_hass
 import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.entity_component import EntityComponent
 from homeassistant.helpers.restore_state import async_get_last_state
 
+_LOGGER = logging.getLogger(__name__)
 
 DOMAIN = 'input_select'
 ENTITY_ID_FORMAT = DOMAIN + '.{}'
-_LOGGER = logging.getLogger(__name__)
 
 CONF_INITIAL = 'initial'
 CONF_OPTIONS = 'options'
@@ -56,7 +57,7 @@ SERVICE_SET_OPTIONS_SCHEMA = vol.Schema({
 
 
 def _cv_input_select(cfg):
-    """Configuration validation helper for input select (voluptuous)."""
+    """Configure validation helper for input select (voluptuous)."""
     options = cfg[CONF_OPTIONS]
     initial = cfg.get(CONF_INITIAL)
     if initial is not None and initial not in options:
@@ -77,6 +78,7 @@ CONFIG_SCHEMA = vol.Schema({
 }, required=True, extra=vol.ALLOW_EXTRA)
 
 
+@bind_hass
 def select_option(hass, entity_id, option):
     """Set value of input_select."""
     hass.services.call(DOMAIN, SERVICE_SELECT_OPTION, {
@@ -85,6 +87,7 @@ def select_option(hass, entity_id, option):
     })
 
 
+@bind_hass
 def select_next(hass, entity_id):
     """Set next value of input_select."""
     hass.services.call(DOMAIN, SERVICE_SELECT_NEXT, {
@@ -92,6 +95,7 @@ def select_next(hass, entity_id):
     })
 
 
+@bind_hass
 def select_previous(hass, entity_id):
     """Set previous value of input_select."""
     hass.services.call(DOMAIN, SERVICE_SELECT_PREVIOUS, {
@@ -99,6 +103,7 @@ def select_previous(hass, entity_id):
     })
 
 
+@bind_hass
 def set_options(hass, entity_id, options):
     """Set options of input_select."""
     hass.services.call(DOMAIN, SERVICE_SET_OPTIONS, {

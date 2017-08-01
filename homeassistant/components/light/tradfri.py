@@ -1,4 +1,9 @@
-"""Support for the IKEA Tradfri platform."""
+"""
+Support for the IKEA Tradfri platform.
+
+For more details about this platform, please refer to the documentation at
+https://home-assistant.io/components/light.tradfri/
+"""
 import logging
 
 from homeassistant.components.light import (
@@ -6,7 +11,7 @@ from homeassistant.components.light import (
     SUPPORT_COLOR_TEMP, SUPPORT_RGB_COLOR, Light)
 from homeassistant.components.light import \
     PLATFORM_SCHEMA as LIGHT_PLATFORM_SCHEMA
-from homeassistant.components.tradfri import KEY_GATEWAY
+from homeassistant.components.tradfri import KEY_GATEWAY, KEY_TRADFRI_GROUPS
 from homeassistant.util import color as color_util
 
 _LOGGER = logging.getLogger(__name__)
@@ -30,8 +35,10 @@ def setup_platform(hass, config, add_devices, discovery_info=None):
     lights = [dev for dev in devices if dev.has_light_control]
     add_devices(Tradfri(light) for light in lights)
 
-    groups = gateway.get_groups()
-    add_devices(TradfriGroup(group) for group in groups)
+    allow_tradfri_groups = hass.data[KEY_TRADFRI_GROUPS][gateway_id]
+    if allow_tradfri_groups:
+        groups = gateway.get_groups()
+        add_devices(TradfriGroup(group) for group in groups)
 
 
 class TradfriGroup(Light):
@@ -64,7 +71,7 @@ class TradfriGroup(Light):
 
     def turn_off(self, **kwargs):
         """Instruct the group lights to turn off."""
-        return self._group.set_state(0)
+        self._group.set_state(0)
 
     def turn_on(self, **kwargs):
         """Instruct the group lights to turn on, or dim."""
@@ -75,7 +82,11 @@ class TradfriGroup(Light):
 
     def update(self):
         """Fetch new state data for this group."""
-        self._group.update()
+        from pytradfri import RequestTimeout
+        try:
+            self._group.update()
+        except RequestTimeout:
+            _LOGGER.warning("Tradfri update request timed out")
 
 
 class Tradfri(Light):
@@ -146,7 +157,7 @@ class Tradfri(Light):
 
     def turn_off(self, **kwargs):
         """Instruct the light to turn off."""
-        return self._light_control.set_state(False)
+        self._light_control.set_state(False)
 
     def turn_on(self, **kwargs):
         """
@@ -174,7 +185,11 @@ class Tradfri(Light):
 
     def update(self):
         """Fetch new state data for this light."""
-        self._light.update()
+        from pytradfri import RequestTimeout
+        try:
+            self._light.update()
+        except RequestTimeout:
+            _LOGGER.warning("Tradfri update request timed out")
 
         # Handle Hue lights paired with the gateway
         # hex_color is 0 when bulb is unreachable
