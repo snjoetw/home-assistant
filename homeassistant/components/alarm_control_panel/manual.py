@@ -12,7 +12,7 @@ import voluptuous as vol
 import homeassistant.components.alarm_control_panel as alarm
 import homeassistant.util.dt as dt_util
 from homeassistant.const import (
-    STATE_ALARM_ARMED_AWAY, STATE_ALARM_ARMED_HOME, STATE_ALARM_ARMED_NIGHT,
+    ATTR_CODE_FORMAT, STATE_ALARM_ARMED_AWAY, STATE_ALARM_ARMED_HOME, STATE_ALARM_ARMED_NIGHT,
     STATE_ALARM_DISARMED, STATE_ALARM_PENDING, STATE_ALARM_TRIGGERED,
     CONF_PLATFORM, CONF_NAME, CONF_CODE, CONF_PENDING_TIME, CONF_TRIGGER_TIME,
     CONF_DISARM_AFTER_TRIGGER)
@@ -183,3 +183,15 @@ class ManualAlarm(alarm.AlarmControlPanel):
         if not check:
             _LOGGER.warning("Invalid code given for %s", state)
         return check
+
+    @property
+    def state_attributes(self):
+        """Return the state attributes."""
+        state_attr = {
+            ATTR_CODE_FORMAT: self.code_format
+        }
+
+        if self.state == STATE_ALARM_PENDING:
+          state_attr["pending_to"] = self._state
+
+        return state_attr
